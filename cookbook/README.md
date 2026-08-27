@@ -15,8 +15,15 @@ never fork it per application; add only what's missing.
   per pattern in a remote git repo, per-env input-sets, Nexus image per CI handoff,
   approval for staging/prod, rollback on health failure).
 
-## Status (backlog)
-This is a **first-cut scaffold**, not yet confirmed against the architect's actual
-.NET Core Harness template, and the agent does **not yet read it** (ARCHITECTURE.md
-§6). Remaining work: confirm the recipe fields against the real template and wire
-`GENERATE` to consume this cookbook-first with the LLM as fallback.
+## Status — WIRED (metadata-level) ✓
+`GENERATE` now reads this cookbook: `src/agent/cookbook.py` loads the recipe for the
+`app_pattern` (web-service | worker) and `GenerateHarnessPipeline` stamps the
+generated pipeline's `metadata.labels`/`annotations` with the recipe's declared
+strategy, pattern, health type, shared-template name and approval envs. It reports
+`generation_source` (`cookbook` | `builtin-fallback`).
+
+Remaining (backlog): this is still a **first-cut scaffold**. The recipe currently
+drives pipeline *metadata*, not the full Argo/Harness template body. Confirm the
+recipe fields against the architect's real .NET Core Harness template, then thread
+them (strategy, health path, approvals, target) through the template body, with an
+LLM fallback that writes a missing recipe.

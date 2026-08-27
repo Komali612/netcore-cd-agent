@@ -4,6 +4,7 @@ This agent receives CI handoff, designs Harness deployment pipelines for AKS,
 and opens PRs for human review. Uses blue/green deployment with multiple gates.
 """
 from agent_core import Tool
+from ..cookbook import get_recipe as get_cd_recipe, render_metadata
 import json
 import subprocess
 import tempfile
@@ -192,6 +193,12 @@ class GenerateHarnessPipeline(Tool):
                 "description": "DAST CVE severity threshold for rollback",
                 "enum": ["critical", "high", "medium"],
                 "default": "high"
+            },
+            "app_pattern": {
+                "type": "string",
+                "description": "Deploy shape / app-pattern; selects the CD cookbook recipe",
+                "enum": ["web-service", "worker"],
+                "default": "web-service"
             }
         },
         "required": ["app_name", "kubernetes_cluster", "image_registry", "image_name"],
@@ -199,9 +206,19 @@ class GenerateHarnessPipeline(Tool):
 
     def run(self, app_name: str, kubernetes_cluster: str, image_registry: str,
             image_name: str, namespace: str = "default", include_dast: bool = True,
-            include_playwright: bool = True, dast_severity_threshold: str = "high") -> dict:
+            include_playwright: bool = True, dast_severity_threshold: str = "high",
+            app_pattern: str = "web-service") -> dict:
         """Generate Harness deployment pipeline."""
         try:
+            # GENERATE is cookbook-first (ARCHITECTURE.md §2.3): load this agent's
+            # own CD recipe for the app-pattern and stamp the pipeline with its
+            # declared strategy/pattern/approvals; fall back when no recipe matches.
+            try:
+                recipe = get_cd_recipe(app_pattern)
+            except Exception:
+                recipe = None
+            cookbook_meta = render_metadata(recipe, app_pattern)
+            generation_source = "cookbook" if recipe else "builtin-fallback"
             # The pipeline YAML mixes our substitutions with Argo Workflow
             # ``{{ ... }}`` placeholders and shell snippets that contain
             # backslashes. To avoid f-string brace/backslash escaping pitfalls
@@ -278,6 +295,7 @@ class GenerateHarnessPipeline(Tool):
                 "metadata:\n"
                 "  generateName: '__APP__-deploy-'\n"
                 "  namespace: harness\n"
+                "__COOKBOOK_META__"
                 "spec:\n"
                 "  entrypoint: deployment-workflow\n"
                 "  templates:\n"
@@ -350,6 +368,7 @@ class GenerateHarnessPipeline(Tool):
 
             pipeline_yaml = (
                 template
+                .replace("__COOKBOOK_META__", cookbook_meta)
                 .replace("__DAST_REF__", dast_step_ref if include_dast else "")
                 .replace("__PLAYWRIGHT_REF__", playwright_step_ref if include_playwright else "")
                 .replace("__DAST_BLOCK__", dast_block)
@@ -430,6 +449,8 @@ notifications:
                 "config_filename": f"{app_name}-deployment-config.yaml",
                 "pipeline_yaml": pipeline_yaml,
                 "config_yaml": config_yaml,
+                "generation_source": generation_source,
+                "app_pattern": app_pattern,
                 "configuration": {
                     "deployment_strategy": "blue-green",
                     "dast_enabled": include_dast,
