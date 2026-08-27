@@ -1,0 +1,44 @@
+# netcore-cd-agent cookbook — .NET Core CD recipes ONLY (Harness blue/green on AKS).
+#
+# Per the platform model (ARCHITECTURE.md §2.3) this agent carries its own cookbook,
+# scoped to the one framework it owns (.NET Core). A CD recipe varies by DEPLOY
+# SHAPE / app-pattern, not by language.
+#
+# IMPORTANT: this is a STARTER scaffold reflecting the architect's authoritative CD
+# design (Acceptance Criteria), NOT a copy of cicd-bootstrap's CD recipes — those
+# are plain `docker run` shapes and target a different runtime. The authoritative
+# design is Harness blue/green on Kubernetes (AKS):
+#   - ONE shared Harness pipeline template per app-pattern, held in a REMOTE GIT
+#     repo (not only Harness's internal store); the template is NEVER forked per app.
+#   - Per-application and per-environment config supplied separately (input-sets),
+#     e.g. .harness/{app}/{env}.yaml.
+#   - Runtime logic: pull the image from Nexus per the CI handoff (image/registry +
+#     tag) -> deploy blue/green to the target cluster/namespace -> health check ->
+#     roll back on failure. Approval gate for staging/prod.
+#
+# BACKLOG (ARCHITECTURE.md §6): the recipe fields below are a first cut to be
+# confirmed against the architect's .NET Core Harness template, and GENERATE must
+# be wired to consume this cookbook-first (LLM only as fallback).
+
+recipes:
+  web-service:
+    display_name: "Web service (HTTP server on a port), AKS blue/green"
+    harness_template: "shared/dotnet-core-web-bluegreen"   # one shared template, never forked
+    deploy_strategy: blue-green
+    target: { cluster: "__CLUSTER__", namespace: "__NAMESPACE__" }
+    image_source: nexus            # pulled per the CI handoff (registry + tag)
+    port: 8080                     # real port comes from the app's Dockerfile EXPOSE
+    health_type: http
+    health_path: "/"
+    approval_envs: [staging, prod] # dev auto-deploys; staging/prod pause for approval
+    rollback: on-health-failure
+
+  worker:
+    display_name: "Background worker (no network port), AKS blue/green"
+    harness_template: "shared/dotnet-core-worker-bluegreen"
+    deploy_strategy: blue-green
+    target: { cluster: "__CLUSTER__", namespace: "__NAMESPACE__" }
+    image_source: nexus
+    health_type: process
+    approval_envs: [staging, prod]
+    rollback: on-health-failure
